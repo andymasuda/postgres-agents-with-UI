@@ -6,7 +6,13 @@ pandas
 python-dotenv
 sqlalchemy
 psycopg2-binary
-azure-ai-projects 
-azure-identity 
-opentelemetry-sdk 
+azure-ai-projects
+azure-identity
+opentelemetry-sdk
 azure-monitor-opentelemetry
+PyMuPDF
+psycopg2
+python-docx
+openai
+azure-storage-blob
+langchain

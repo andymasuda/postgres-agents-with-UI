@@ -76,9 +76,9 @@ with tracer.start_as_current_span(scenario):
         # Create an agent and run user's request with function calls
         agent = project_client.agents.create_agent(
             model=os.environ["MODEL_DEPLOYMENT_NAME"],
-            name=f"advanced-legal-cases-agent-{datetime.now().strftime('%Y%m%d%H%M')}",
+            name=f"advanced-documents-agent-{datetime.now().strftime('%Y%m%d%H%M')}",
             instructions=f"""
-            You are a helpful legal assistant that can retrieve information about legal cases. 
+            You are a helpful assistant that can retrieve information from various types of documents. 
             The current date is {datetime.now().strftime('%Y-%m-%d')}.
             """,
             toolset=toolset,
@@ -91,7 +91,7 @@ with tracer.start_as_current_span(scenario):
         message = project_client.agents.create_message(
             thread_id=thread.id,
             role="user",
-            content="Water leaking into the apartment from the floor above. What are the prominent legal precedents in Washington on this problem in the last 10 years?",
+            content="What is the dress code at Convergent Computing?",
         )
         print(f"Created message, ID: {message.id}")
 
@@ -105,7 +105,7 @@ with tracer.start_as_current_span(scenario):
 
             if run.status == "requires_action" and isinstance(run.required_action, SubmitToolOutputsAction):
                 tool_calls = run.required_action.submit_tool_outputs.tool_calls
-                #print(f"Tool calls: {tool_calls}")
+                print(f"Tool calls: {tool_calls}")
                 if not tool_calls:
                     print("No tool calls provided - cancelling run")
                     project_client.agents.cancel_run(thread_id=thread.id, run_id=run.id)

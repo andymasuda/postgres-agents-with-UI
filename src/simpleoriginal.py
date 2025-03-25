@@ -23,11 +23,11 @@ toolset = ToolSet()
 toolset.add(functions)
 
 agent = project_client.agents.create_agent(
-    model=os.environ["MODEL_DEPLOYMENT_NAME"], 
-    name=f"documents-agent-{datetime.now().strftime('%Y%m%d%H%M')}",
-    description="Documents Agent", 
+    model= os.environ["MODEL_DEPLOYMENT_NAME"], 
+    name=f"legal-cases-agent-{datetime.now().strftime('%Y%m%d%H%M')}",
+    description="Legal Cases Agent", 
     instructions=f"""
-    You are a helpful assistant that can retrieve information from various types of documents. 
+    You are a helpful legal assistant that can retrieve information about legal cases. 
     The current date is {datetime.now().strftime('%Y-%m-%d')}.
     """, 
     toolset=toolset
@@ -43,7 +43,7 @@ print(f"Created thread, ID: {thread.id}")
 message = project_client.agents.create_message(
     thread_id=thread.id,
     role="user",
-    content="What information is available about the dress code policy at Convergent Computing?"
+    content="Water leaking into the apartment from the floor above, What are the prominent legal precedents in Washington on this problem in the last 10 years?"
 )
 print(f"Created message, ID: {message.id}")
 
@@ -68,5 +68,3 @@ pprint(messages['data'][0]['content'][0]['text']['value'])
 #Delete the agent when done
 # project_client.agents.delete_agent(agent.id)
 # print("Deleted agent")
-
-

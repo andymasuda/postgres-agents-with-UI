@@ -3,7 +3,14 @@ import csv
 import json
 import os
 import sys
+from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
+from azure.storage.blob import BlobServiceClient
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from openai import AzureOpenAI
+from docx import Document
+from io import BytesIO
+import fitz
 
 # Load environment variables
 load_dotenv("../.env")
@@ -20,7 +27,7 @@ AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 
 # Fetch the Embedding model name from environment variables
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME")
-                                  
+
 # Establish a connection to the PostgreSQL database
 conn = psycopg2.connect(CONN_STR)
 
@@ -41,81 +48,68 @@ def create_openai_connection(cur):
     print("OpenAI connection established successfully")
     conn.commit()
 
-# Drop the cases table if it exists
+# Create the document_chunks table
 def create_tables(cur):
-    cur.execute("DROP TABLE IF EXISTS cases")
-    cur.execute("DROP TABLE IF EXISTS temp_cases_data")
+    cur.execute("DROP TABLE IF EXISTS document_chunks")
     conn.commit()
 
-    # Create the cases table
     cur.execute("""
-        CREATE TABLE cases (
+        CREATE TABLE document_chunks (
             id SERIAL PRIMARY KEY,
-            name TEXT,
-            decision_date DATE,
-            court_id INT,
-            opinion TEXT
+            chunk TEXT,
+            embeddings FLOAT8[]
         )
     """)
-    print("Cases table created successfully")
+    print("Document chunks table created successfully")
     conn.commit()
 
-    # Create the temp_cases table
-    cur.execute("CREATE TABLE temp_cases_data (data jsonb)")
-    conn.commit()
-    print("Temp cases table created successfully")
+# Retrieve document from Azure Storage, split into chunks, and insert embeddings
+def ingest_data_and_add_embeddings(cur):
+    # Initialize Azure Blob Storage client
+    blob_service_client = BlobServiceClient.from_connection_string(os.getenv('AZURE_STORAGE_CONNECTION_STRING'))
+    blob_name = os.getenv('AZURE_BLOB_NAME')
+    blob_client = blob_service_client.get_blob_client(container=os.getenv('AZURE_BLOB_CONTAINER_NAME'), blob=blob_name)
 
-# Load data from the CSV file into the temp_cases table
-def ingest_data_to_tables(cur):
-    with open('cases.csv', 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            json_data = row['data']
-            #print(json_data)
-            cur.execute("INSERT INTO temp_cases_data (data) VALUES (%s)", [json_data])
-    conn.commit()
-    print("Data loaded into temp_cases_data table successfully")
-    
-    # Insert data into the cases table
-    cur.execute("""
-        INSERT INTO cases
-        SELECT
-            (data#>>'{id}')::int AS id,
-            (data#>>'{name_abbreviation}')::text AS name,
-            (data#>>'{decision_date}')::date AS decision_date,
-            (data#>>'{court,id}')::int AS court_id,
-            array_to_string(ARRAY(
-                SELECT jsonb_path_query(data, '$.casebody.opinions[*].text')
-            ), ', ') AS opinion
-        FROM temp_cases_data
-    """)
-    conn.commit()
-    print("Data loaded into cases table successfully")
+    # Download the blob content as bytes
+    blob_data = blob_client.download_blob().readall()
 
-# Add Embeddings
-def add_embeddings(cur):
-    print("Adding Embeddings, this will take a while around 3-5 mins...")
-    cur.execute("ALTER TABLE cases ADD COLUMN opinions_vector vector(1536)")
-    cur.execute(f"""
-        UPDATE cases
-        SET opinions_vector = azure_openai.create_embeddings(
-            '{EMBEDDING_MODEL_NAME}', 
-            name || LEFT(opinion, 8000), 
-            max_attempts => 5, 
-            retry_delay_ms => 500
-        )::vector
-        WHERE opinions_vector IS NULL
-    """)
+    # Determine the file type and read the document
+    if blob_name.lower().endswith('.docx'):
+        doc = Document(BytesIO(blob_data))
+        document = "\n".join([para.text for para in doc.paragraphs])
+    elif blob_name.lower().endswith('.pdf'):
+        pdf_document = fitz.open(stream=blob_data, filetype="pdf")
+        document = ""
+        for page_num in range(pdf_document.page_count):
+            page = pdf_document.load_page(page_num)
+            document += page.get_text()
+    else:
+        raise ValueError("Unsupported file type")
 
-    # Commit the transaction
+    # Split the document into chunks
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    chunks = text_splitter.split_text(document)
+
+    # Initialize Azure OpenAI client
+    openai_client = AzureOpenAI(
+        api_key=os.getenv('AZURE_OPENAI_API_KEY'),
+        api_version="2024-07-01-preview",
+        azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT')
+    )
+
+    # Generate embeddings and insert into the database
+    print("Generating embeddings and inserting into the database...")
+    for chunk in chunks:
+        response = openai_client.embeddings.create(input=[chunk], model=os.getenv('EMBEDDING_MODEL_NAME'))
+        embedding = response.data[0].embedding
+        cur.execute("INSERT INTO document_chunks (chunk, embeddings) VALUES (%s, %s)", (chunk, embedding))
     conn.commit()
-    print("Embeddings added successfully")
+    print("Document chunks and embeddings inserted successfully")
 
 create_extensions(cur)
 create_openai_connection(cur)
 create_tables(cur)
-ingest_data_to_tables(cur)
-add_embeddings(cur)
+ingest_data_and_add_embeddings(cur)
 
 # Close the cursor and connection
 cur.close()
