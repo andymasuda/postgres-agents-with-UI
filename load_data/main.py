@@ -106,9 +106,9 @@ def ingest_data_and_add_embeddings(cur):
     conn.commit()
     print("Document chunks and embeddings inserted successfully")
 
-create_extensions(cur)
-create_openai_connection(cur)
-create_tables(cur)
+#create_extensions(cur)
+#create_openai_connection(cur)
+#create_tables(cur)
 ingest_data_and_add_embeddings(cur)
 
 # Close the cursor and connection

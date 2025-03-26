@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat with Agent</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        #user-input-container, #response-container {
+            width: 50%;
+        }
+        #response-box {
+            border: 1px solid #ccc;
+            padding: 10px;
+            height: 200px;
+            width: 100%;
+            overflow-y: auto;
+            margin-top: 10px;
+            white-space: pre-wrap;
+        }
+        #user-input {
+            width: calc(100% - 80px);
+            padding: 10px;
+        }
+        #send-button {
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chat with Agent</h1>
+    <div id="user-input-container">
+        <input type="text" id="user-input" placeholder="Type your message here...">
+        <button id="send-button">Send</button>
+    </div>
+    <div id="response-container">
+        <h2>Agent's Response</h2>
+        <div id="response-box"></div>
+    </div>
+
+    <script>
+        const responseBox = document.getElementById("response-box");
+        const userInput = document.getElementById("user-input");
+        const sendButton = document.getElementById("send-button");
+
+        sendButton.addEventListener("click", async () => {
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            // Send message to backend
+            const response = await fetch("/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message }),
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                responseBox.textContent = `${data.response}`;
+            } else {
+                responseBox.textContent = `Error: ${data.error}`;
+            }
+
+            // Clear input
+            userInput.value = "";
+        });
+    </script>
+</body>
+</html>

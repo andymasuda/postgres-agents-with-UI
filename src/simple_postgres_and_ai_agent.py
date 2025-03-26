@@ -4,7 +4,7 @@ from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects.models import FunctionTool, ToolSet
 from datetime import datetime
-from legal_agent_tools import user_functions # user functions which can be found in a legal_agent_tools.py file.
+from legal_agent_tools import user_functions
 from dotenv import load_dotenv
 # Load environment variables
 load_dotenv("../.env")
