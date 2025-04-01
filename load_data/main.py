@@ -64,11 +64,10 @@ def create_tables(cur):
     conn.commit()
 
 # Retrieve document from Azure Storage, split into chunks, and insert embeddings
-def ingest_data_and_add_embeddings(cur):
+def ingest_data_and_add_embeddings(cur, blob_name, container_name):
     # Initialize Azure Blob Storage client
     blob_service_client = BlobServiceClient.from_connection_string(os.getenv('AZURE_STORAGE_CONNECTION_STRING'))
-    blob_name = os.getenv('AZURE_BLOB_NAME')
-    blob_client = blob_service_client.get_blob_client(container=os.getenv('AZURE_BLOB_CONTAINER_NAME'), blob=blob_name)
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
 
     # Download the blob content as bytes
     blob_data = blob_client.download_blob().readall()
@@ -109,7 +108,7 @@ def ingest_data_and_add_embeddings(cur):
 #create_extensions(cur)
 #create_openai_connection(cur)
 #create_tables(cur)
-ingest_data_and_add_embeddings(cur)
+ingest_data_and_add_embeddings(cur, os.getenv('AZURE_BLOB_NAME'), os.getenv('AZURE_BLOB_CONTAINER_NAME'))
 
 # Close the cursor and connection
 cur.close()

@@ -8,10 +8,25 @@ from typing import Any, Callable, Set
 from sqlalchemy import create_engine
 from azure.ai.projects.telemetry import trace_function
 from opentelemetry import trace
+from pathlib import Path
+import logging
+import sys
+
+# Redirect debug prints to Azure log stream (stdout)
+logging.basicConfig(
+    level=logging.DEBUG,
+    stream=sys.stdout,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger()
 
 # Load environment variables
-load_dotenv("../.env")
+env_path = Path(__file__).resolve().parent.parent / ".env"
+if not load_dotenv(env_path):
+    logger.debug(f"Warning: Could not load .env file from {env_path}")
+
 CONN_STR = os.getenv("SQLALCHEMY_PG_CONNECTION")
+logger.debug(f"Loaded CONN_STR: {CONN_STR}")
 
 # The trace_func decorator will trace the function call and enable adding additional attributes
 # to the span in the function implementation. Note that this will trace the function parameters and their values.
@@ -44,11 +59,11 @@ def vector_search_cases(vector_search_query: str, limit: int = 10) -> str:
     # Fetch cases information from the database
     df = pd.read_sql(query, db, params=(vector_search_query, limit))
 
-    # Debugging: Print the query and returned data
-    print("Executed SQL query:")
-    print(query)
-    print("Returned data:")
-    print(df)
+    # Debugging: Log the query and returned data
+    logger.debug("Executed SQL query:")
+    logger.debug(query)
+    logger.debug("Returned data:")
+    logger.debug(df)
 
     span = trace.get_current_span()
     span.set_attribute("requested_query", query)
@@ -56,9 +71,9 @@ def vector_search_cases(vector_search_query: str, limit: int = 10) -> str:
     documents_json = json.dumps(df.to_json(orient="records"))
     span.set_attribute("documents_json", documents_json)
 
-    # Print the JSON before returning
-    print("Generated JSON:")
-    print(documents_json)
+    # Log the JSON before returning
+    logger.debug("Generated JSON:")
+    logger.debug(documents_json)
 
     return documents_json
 
@@ -87,24 +102,24 @@ def count_cases(vector_search_query: str, limit: int = 10) -> str:
     """
     
     # Debugging: Log the query and parameters
-    print("Executing SQL query:")
-    print(query)
-    print("With parameters:")
-    print((vector_search_query, limit))  # Log the parameters being passed
+    logger.debug("Executing SQL query:")
+    logger.debug(query)
+    logger.debug("With parameters:")
+    logger.debug((vector_search_query, limit))  # Log the parameters being passed
 
     df = pd.read_sql(query, db, params=(vector_search_query, limit))  # Ensure params match placeholders
 
-    print("Returned data:")
-    print(df)
+    logger.debug("Returned data:")
+    logger.debug(df)
 
     span = trace.get_current_span()
     span.set_attribute("requested_query", query)
     documents_count = json.dumps(df.to_json(orient="records"))
     span.set_attribute("result", documents_count)
 
-    # Print the JSON before returning
-    print("Generated JSON:")
-    print(documents_count)
+    # Log the JSON before returning
+    logger.debug("Generated JSON:")
+    logger.debug(documents_count)
 
     return documents_count
 
