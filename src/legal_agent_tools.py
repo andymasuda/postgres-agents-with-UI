@@ -20,10 +20,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger()
 
-# Load environment variables
 env_path = Path(__file__).resolve().parent.parent / ".env"
-if not load_dotenv(env_path):
-    logger.debug(f"Warning: Could not load .env file from {env_path}")
+load_dotenv(env_path)
 
 CONN_STR = os.getenv("SQLALCHEMY_PG_CONNECTION")
 logger.debug(f"Loaded CONN_STR: {CONN_STR}")
@@ -32,6 +30,81 @@ logger.debug(f"Loaded CONN_STR: {CONN_STR}")
 # to the span in the function implementation. Note that this will trace the function parameters and their values.
 
 # Get data from the Postgres database
+@trace_function()
+def hybrid_search_cases(query: str, limit: int = 10) -> str:
+    """
+    Fetches document chunks relevant to the specified query using hybrid search
+    (combining full-text search and vector search with RRF scoring).
+
+    :param query: The query to search for in the document embeddings and full-text search.
+    :type query: str
+    :param limit: The maximum number of document chunks to fetch, defaults to 10.
+    :type limit: int, optional
+
+    :return: Document chunks as a JSON string.
+    :rtype: str
+    """
+    db = create_engine(CONN_STR)
+    logger.debug("Database engine created successfully. Connection is ready to use.")
+
+    hybrid_query = """
+    WITH full_text_results AS (
+        SELECT id, chunk, 
+                ts_rank(tsvector_column, plainto_tsquery('english', %s)) AS rank
+        FROM document_chunks
+        WHERE tsvector_column @@ plainto_tsquery('english', %s)
+        LIMIT %s
+    ),
+    vector_results AS (
+        SELECT id, chunk, 
+                embeddings::vector <=> azure_openai.create_embeddings(
+                'text-embedding-3-small', %s)::vector AS similarity
+        FROM document_chunks
+        ORDER BY similarity ASC
+        LIMIT %s
+    ),
+    combined_results AS (
+        SELECT 
+            COALESCE(ft.id, vt.id) AS id,
+            COALESCE(ft.chunk, vt.chunk) AS chunk,
+            ft.rank,
+            vt.similarity
+        FROM full_text_results ft
+        FULL OUTER JOIN vector_results vt
+        ON ft.id = vt.id
+    )
+    SELECT id, chunk, 
+            1 / (0.5 + ROW_NUMBER() OVER (ORDER BY rank DESC NULLS LAST)) AS full_text_score,
+            1 / (0.5 + ROW_NUMBER() OVER (ORDER BY similarity ASC NULLS LAST)) AS vector_score,
+            (1 / (0.5 + ROW_NUMBER() OVER (ORDER BY rank DESC NULLS LAST)) +
+            1 / (0.5 + ROW_NUMBER() OVER (ORDER BY similarity ASC NULLS LAST))) AS rrf_score
+    FROM combined_results
+    ORDER BY rrf_score DESC
+    LIMIT %s;
+    """
+
+    # Execute the hybrid query
+    df = pd.read_sql(hybrid_query, db, params=(query, query, limit, query, limit, limit))
+
+    # Debugging: Log the query and returned data
+    logger.debug("Executed hybrid SQL query:")
+    logger.debug(hybrid_query)
+    logger.debug("Returned data:")
+    logger.debug(df)
+
+    span = trace.get_current_span()
+    span.set_attribute("requested_query", hybrid_query)
+
+    documents_json = json.dumps(df.to_json(orient="records"))
+    span.set_attribute("documents_json", documents_json)
+
+    # Log the JSON before returning
+    logger.debug("Generated JSON:")
+    logger.debug(documents_json)
+
+    logger.debug("Executing hybrid_search_cases successfully.")
+    return documents_json
+'''
 @trace_function()
 def vector_search_cases(vector_search_query: str, limit: int = 10) -> str:
     """
@@ -74,9 +147,7 @@ def vector_search_cases(vector_search_query: str, limit: int = 10) -> str:
     # Log the JSON before returning
     logger.debug("Generated JSON:")
     logger.debug(documents_json)
-
-    return documents_json
-
+  
 @trace_function()
 def count_cases(vector_search_query: str, limit: int = 10) -> str:
     """
@@ -122,9 +193,8 @@ def count_cases(vector_search_query: str, limit: int = 10) -> str:
     logger.debug(documents_count)
 
     return documents_count
-
+'''
 # Statically defined user functions for fast reference
 user_functions: Set[Callable[..., Any]] = {
-    vector_search_cases,
-    count_cases
+    hybrid_search_cases
 }

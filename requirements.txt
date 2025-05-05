@@ -17,3 +17,6 @@ python-docx
 openai
 azure-storage-blob
 langchain
+flask
+azure-ai-inference
+flask-session

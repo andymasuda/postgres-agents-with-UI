@@ -63,6 +63,51 @@ def create_tables(cur):
     print("Document chunks table created successfully")
     conn.commit()
 
+# Encapsulate the query logic into a function
+def create_tsvector_column_and_index(cur):
+    """
+    Adds a tsvector column for full-text search, creates a GIN index on it,
+    and sets up a trigger to maintain the column.
+    """
+    # Add a tsvector column for full-text search
+    cur.execute("""
+        ALTER TABLE document_chunks
+        ADD COLUMN IF NOT EXISTS tsvector_column tsvector
+    """)
+    
+    # Populate the tsvector column with initial data
+    cur.execute("""
+        UPDATE document_chunks
+        SET tsvector_column = to_tsvector('english', chunk)
+    """)
+    
+    # Create a GIN index on the tsvector column
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS gin_index_tsvector
+        ON document_chunks USING gin(tsvector_column)
+    """)
+    
+    # Create a trigger to automatically update the tsvector column
+    cur.execute("""
+        CREATE OR REPLACE FUNCTION update_tsvector_column()
+        RETURNS TRIGGER AS $$
+        BEGIN
+          NEW.tsvector_column := to_tsvector('english', NEW.chunk);
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+    """)
+    
+    cur.execute("""
+        CREATE TRIGGER IF NOT EXISTS tsvector_update_trigger
+        BEFORE INSERT OR UPDATE ON document_chunks
+        FOR EACH ROW
+        EXECUTE FUNCTION update_tsvector_column()
+    """)
+    
+    print("tsvector column, GIN index, and trigger created successfully")
+    conn.commit()
+
 # Retrieve document from Azure Storage, split into chunks, and insert embeddings
 def ingest_data_and_add_embeddings(cur, blob_name, container_name):
     # Initialize Azure Blob Storage client
@@ -108,7 +153,8 @@ def ingest_data_and_add_embeddings(cur, blob_name, container_name):
 #create_extensions(cur)
 #create_openai_connection(cur)
 #create_tables(cur)
-ingest_data_and_add_embeddings(cur, os.getenv('AZURE_BLOB_NAME'), os.getenv('AZURE_BLOB_CONTAINER_NAME'))
+create_tsvector_column_and_index(cur)
+#ingest_data_and_add_embeddings(cur, os.getenv('AZURE_BLOB_NAME'), os.getenv('AZURE_BLOB_CONTAINER_NAME'))
 
 # Close the cursor and connection
 cur.close()

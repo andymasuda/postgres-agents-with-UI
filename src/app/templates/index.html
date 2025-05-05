@@ -73,6 +73,17 @@
             // Clear input
             userInput.value = "";
         });
+
+        // Detect when the user closes the tab or navigates away
+        window.addEventListener("beforeunload", (event) => {
+            try {
+                const url = "/delete_thread";
+                const data = JSON.stringify({});
+                navigator.sendBeacon(url, data);
+            } catch (error) {
+                console.error("Error deleting thread:", error);
+            }
+        });
     </script>
 </body>
 </html>
