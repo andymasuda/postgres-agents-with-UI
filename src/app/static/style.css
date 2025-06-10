@@ -1,0 +1,165 @@
+body {
+    font-family: 'Segoe UI';
+    font-style: normal;
+    font-weight: 400;
+    font-size: 14px;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: auto; /* Allow the body to grow with content */
+    background-color: #f2f2f2; /* Set background to gray */
+    overflow-y: auto; /* Ensure scrolling happens on the entire page */
+}
+
+#header {
+    display: flex;
+    align-items: center;
+    padding: 10px 20px;
+    background-color: #f2f2f2;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    margin-bottom: 10px; /* Add margin to align with the top of the white background div */
+}
+
+#logo {
+    height: 40px;
+    width: 40px;
+    margin-right: 10px;
+}
+
+#header-title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #333;
+}
+
+#background-div {
+    position: fixed;
+    top: 60px;
+    left: 20px;
+    right: 20px;
+    bottom: 0;
+    width: auto;
+    height: auto;
+    box-sizing: border-box;
+    box-shadow: 0 -4px 8px rgba(0, 0, 0, 0.2), 0 4px 8px rgba(0, 0, 0, 0.2); /* Added shadow to the top */
+    background-color: #fff;
+    border-top-left-radius: 10px; /* Round top-left corner */
+    border-top-right-radius: 10px; /* Round top-right corner */
+    z-index: 0; /* Ensure it is underneath all chat elements */
+    padding-bottom: 60px; /* Add padding to the bottom of the background div */
+}
+
+#chat-container {
+    position: relative;
+    z-index: 1; /* Ensure it is above the background div */
+    display: flex;
+    flex-direction: column;
+    width: 70%;
+    margin: 0 auto;
+    background-color: #fff;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+#response-box {
+    flex: 1;
+    padding: 10px;
+    padding-bottom: 120px; /* Add padding equal to the height of the input container */
+    padding-top: 80px; /* Add padding to account for the header height */
+    overflow-y: visible; /* Remove internal scrolling */
+    background-color: #fff; /* Set chat area background to white */
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 60px;
+}
+
+.message {
+    max-width: 70%;
+    padding: 15px; /* Increased padding for better spacing */
+    border-radius: 10px;
+    word-wrap: break-word;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 0 6px rgba(0, 0, 0, 0.1); /* Added shadows to both sides and bottom */
+}
+
+.user-message {
+    align-self: flex-end;
+    background-color: #edf5fd;
+}
+
+.agent-message {
+    align-self: flex-start;
+    background-color: #fff;
+}
+
+#user-input-container {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 70%;
+    display: flex;
+    background-color: #fff;
+    border-top: 1px solid #ccc;
+    border-radius: 10px; /* Remove border radius for a seamless edge */
+    padding: 0; /* Remove padding */
+    z-index: 3; /* Ensure it stays above other elements */
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Added shadow to sides and bottom */
+}
+
+#user-input {
+    flex: 1;
+    padding: 15px; /* Maintain internal padding for usability */
+    border: 1px solid #ccc;
+    border-radius: 5px; /* Remove border radius to align with container edges */
+    font-size: 1rem; /* Adjust font size for better readability */
+    resize: none; /* Prevent resizing */
+    height: 100px; /* Set height for multiline input */
+    margin: 0; /* Remove margin */
+    font-family: 'Segoe UI';
+    font-style: normal;
+    font-weight: 400;
+    font-size: 14px;
+    outline: none; /* Remove the blue border when focused */
+}
+
+#send-button {
+    position: absolute; /* Position the button inside the container */
+    bottom: 10px; /* Align to the bottom of the textarea */
+    right: 10px; /* Align to the right of the textarea */
+    padding: 10px; /* Adjust padding for the icon */
+    font-size: 0; /* Remove text size to avoid affecting the icon */
+    background-color: transparent; /* Make the background transparent */
+    color: #808080; /* Set icon color to gray */
+    border: none; /* Ensure no border */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer; /* Default cursor for enabled state */
+}
+
+#send-button:hover:enabled {
+    color: #007bff; /* Turn the icon blue on hover */
+}
+
+#send-button:disabled {
+    color: #d3d3d3; /* Light gray for disabled state */
+    cursor: not-allowed; /* Prevent interaction when disabled */
+}
+
+#spacer-div {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 70%; /* Match the width of the chat container */
+    height: 20px; /* Height of the spacer */
+    background-color: #fff; /* White background to block chats */
+    z-index: 2; /* Place it between the chat container and user input container */
+}

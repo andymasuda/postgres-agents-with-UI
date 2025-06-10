@@ -4,44 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chat with Agent</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-        }
-        #user-input-container, #response-container {
-            width: 50%;
-        }
-        #response-box {
-            border: 1px solid #ccc;
-            padding: 10px;
-            height: 200px;
-            width: 100%;
-            overflow-y: auto;
-            margin-top: 10px;
-            white-space: pre-wrap;
-        }
-        #user-input {
-            width: calc(100% - 80px);
-            padding: 10px;
-        }
-        #send-button {
-            padding: 10px;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <h1>Chat with Agent</h1>
-    <div id="user-input-container">
-        <input type="text" id="user-input" placeholder="Type your message here...">
-        <button id="send-button">Send</button>
-    </div>
-    <div id="response-container">
-        <h2>Agent's Response</h2>
+    <header id="header">
+        <img src="/static/favicon.ico" alt="Logo" id="logo">
+        <span id="header-title">Contoso</span>
+    </header>
+    <div id="background-div"></div>
+    <div id="chat-container">
         <div id="response-box"></div>
+    </div>
+    <div id="spacer-div"></div>
+    <div id="user-input-container">
+        <textarea id="user-input" placeholder="Type a new question..."></textarea>
+        <button id="send-button" disabled>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+        </button>
     </div>
 
     <script>
@@ -49,9 +30,21 @@
         const userInput = document.getElementById("user-input");
         const sendButton = document.getElementById("send-button");
 
+        // Enable or disable the send button based on textarea content
+        userInput.addEventListener("input", () => {
+            sendButton.disabled = !userInput.value.trim();
+        });
+
         sendButton.addEventListener("click", async () => {
             const message = userInput.value.trim();
             if (!message) return;
+
+            // Append user message to the chat
+            const userMessage = document.createElement("div");
+            userMessage.className = "message user-message";
+            userMessage.textContent = message;
+            responseBox.appendChild(userMessage);
+            responseBox.scrollTop = responseBox.scrollHeight;
 
             try {
                 const response = await fetch("/chat", {
@@ -61,17 +54,28 @@
                 });
 
                 const data = await response.json();
+                const agentMessage = document.createElement("div");
+                agentMessage.className = "message agent-message";
+
                 if (response.ok) {
-                    responseBox.textContent = `${data.response}`;
+                    agentMessage.textContent = data.response;
                 } else {
-                    responseBox.textContent = `Error: ${data.error}`;
+                    agentMessage.textContent = `Error: ${data.error}`;
                 }
+
+                responseBox.appendChild(agentMessage);
+                responseBox.scrollTop = responseBox.scrollHeight;
             } catch (error) {
-                responseBox.textContent = `Error parsing response: ${error.message}`;
+                const errorMessage = document.createElement("div");
+                errorMessage.className = "message agent-message";
+                errorMessage.textContent = `Error parsing response: ${error.message}`;
+                responseBox.appendChild(errorMessage);
+                responseBox.scrollTop = responseBox.scrollHeight;
             }
 
             // Clear input
             userInput.value = "";
+            sendButton.disabled = true; // Disable the button after sending
         });
 
         // Detect when the user closes the tab or navigates away

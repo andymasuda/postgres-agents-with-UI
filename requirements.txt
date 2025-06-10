@@ -8,9 +8,9 @@ sqlalchemy
 psycopg2-binary
 azure-ai-projects
 azure-identity
-azure-functions
 opentelemetry-sdk
 azure-monitor-opentelemetry
+azure-functions
 PyMuPDF
 psycopg2
 python-docx
