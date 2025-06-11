@@ -6,11 +6,13 @@ from datetime import datetime
 import json
 from typing import Any, Callable, Set
 from sqlalchemy import create_engine
-from azure.ai.projects.telemetry import trace_function
+from azure.ai.agents.telemetry import trace_function
 from opentelemetry import trace
+from openai import OpenAI
 from pathlib import Path
 import logging
 import sys
+import requests
 
 # Redirect debug prints to Azure log stream (stdout)
 logging.basicConfig(
@@ -19,6 +21,12 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger()
+
+class NoInfoFilter(logging.Filter):
+    def filter(self, record):
+        return record.levelno != logging.INFO
+
+logger.addFilter(NoInfoFilter())
 
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(env_path)
@@ -29,6 +37,76 @@ logger.debug(f"Loaded CONN_STR: {CONN_STR}")
 # The trace_func decorator will trace the function call and enable adding additional attributes
 # to the span in the function implementation. Note that this will trace the function parameters and their values.
 
+@trace_function()
+def sql_search(user_query: str) -> str:
+    """
+    Converts a user query into an SQL query, executes it, and returns the results as JSON.
+
+    :param user_query: The user's natural language query.
+    :type user_query: str
+
+    :return: Query results as a JSON string.
+    :rtype: str
+    """
+    API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+    ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+    DEPLOYMENT = os.getenv("MODEL_DEPLOYMENT_NAME")
+
+    db = create_engine(CONN_STR)
+    logger.debug("Database engine created successfully. Connection is ready to use.")
+
+    # Prompt for the LLM to convert user query to SQL
+    system_prompt = (
+        "You are an assistant that converts natural language questions into SQL queries for a PostgreSQL database. "
+        "The table is named 'invoices' and has the following columns: "
+        "\"ID\", \"FiscalWeekBeginDate\", \"Invoice Date\", \"Region\", \"Facility Name\", \"Branch Id\", \"Channel\", "
+        "\"soldto_name\", \"shipto_name\", \"Product Type\", \"Major Code\", \"Major Desc\", \"Mid Code\", \"Mid Desc\", "
+        "\"Minor Code\", \"Minor Desc\", \"Item\", \"Item Desc\", \"Sales\", \"Gross Profit\", \"GM Percent\", \"TLE\". "
+        "ALWAYS use double quotes around all column names in your SQL. Do not use SELECT *, always specify columns. Only generate SQL, no explanations."
+    )
+
+    url = f"{ENDPOINT}/openai/deployments/{DEPLOYMENT}/chat/completions?api-version=2024-02-15-preview"
+    headers = {
+        "Content-Type": "application/json",
+        "api-key": API_KEY,
+    }
+    data = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_query}
+        ],
+        "max_tokens": 256,
+    }
+    response = requests.post(url, headers=headers, json=data)
+    response.raise_for_status()
+    sql_query = response.json()["choices"][0]["message"]["content"].strip()
+    # Remove code block markers if present
+    if sql_query.startswith("```"):
+        sql_query = sql_query.lstrip("`").lstrip("sql").lstrip().rstrip("`")
+        sql_query = sql_query.replace("```", "").strip()
+    logger.debug(f"Generated SQL query: {sql_query}")
+
+    # Execute the generated SQL query
+    try:
+        df = pd.read_sql(sql_query, db)
+        logger.debug("SQL query executed successfully.")
+    except Exception as e:
+        logger.error(f"SQL execution error: {e}")
+        return json.dumps({"error": str(e)})
+
+    # Convert results to JSON
+    results_json = df.to_json(orient="records")
+    logger.debug("Query results as JSON:")
+    logger.debug(results_json)
+
+    span = trace.get_current_span()
+    span.set_attribute("user_query", user_query)
+    span.set_attribute("sql_query", sql_query)
+    span.set_attribute("results_json", results_json)
+
+    return results_json
+
+'''
 # Get data from the Postgres database
 @trace_function()
 def hybrid_search_cases(query: str, limit: int = 10) -> str:
@@ -104,7 +182,7 @@ def hybrid_search_cases(query: str, limit: int = 10) -> str:
 
     logger.debug("Executing hybrid_search_cases successfully.")
     return documents_json
-'''
+
 @trace_function()
 def vector_search_cases(vector_search_query: str, limit: int = 10) -> str:
     """
@@ -147,7 +225,7 @@ def vector_search_cases(vector_search_query: str, limit: int = 10) -> str:
     # Log the JSON before returning
     logger.debug("Generated JSON:")
     logger.debug(documents_json)
-  
+
 @trace_function()
 def count_cases(vector_search_query: str, limit: int = 10) -> str:
     """
@@ -196,5 +274,5 @@ def count_cases(vector_search_query: str, limit: int = 10) -> str:
 '''
 # Statically defined user functions for fast reference
 user_functions: Set[Callable[..., Any]] = {
-    hybrid_search_cases
+    sql_search
 }
