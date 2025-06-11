@@ -4,3 +4,5 @@
 .DS_Store
 .venv/
 .pg-azure-ai
+
+sample_data/

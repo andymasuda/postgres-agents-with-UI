@@ -146,7 +146,7 @@ def ingest_csv_and_add_embeddings(cur, csv_path):
 #create_extensions(cur)
 create_openai_connection(cur)
 #create_tables(cur)
-#ingest_csv_and_add_embeddings(cur, "bluelinxsmalldata.csv") # Note: Store the CSV file in the same directory as this script or provide the correct path
+#ingest_csv_and_add_embeddings(cur, "data/bluelinxsmalldata.csv") # Note: Store the CSV file in the same directory as this script or provide the correct path
 
 # Close the cursor and connection
 cur.close()
