@@ -5,4 +5,4 @@
 .venv/
 .pg-azure-ai
 
-sample_data/
+load_data/bluelinxsmalldata.csv

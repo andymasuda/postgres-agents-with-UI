@@ -2,22 +2,23 @@
 # The Python Worker is managed by the Azure Functions platform
 # Manually managing azure-functions-worker may cause unexpected issues
 
-pandas
-python-dotenv
-sqlalchemy
-psycopg2-binary
-azure-ai-projects
-azure-ai-ml
-azure-identity
-opentelemetry-sdk
-azure-monitor-opentelemetry
-azure-functions
-PyMuPDF
-psycopg2
-python-docx
-openai
-azure-storage-blob
-langchain
-flask
-azure-ai-inference
-flask-session
+pandas==2.2.3
+python-dotenv==1.1.0
+sqlalchemy==2.0.40
+psycopg2-binary==2.9.10
+azure-ai-projects==1.0.0b9
+azure-ai-ml==1.27.1
+azure-ai-agents==1.0.1
+azure-identity==1.21.0
+opentelemetry-sdk==1.32.1
+azure-monitor-opentelemetry==1.6.7
+azure-functions==1.23.0
+PyMuPDF==1.25.5
+psycopg2==2.9.10
+python-docx==1.1.2
+openai==1.75.0
+azure-storage-blob==12.25.1
+langchain==0.3.23
+flask==3.1.0
+azure-ai-inference==1.0.0b9
+flask-session==0.8.0

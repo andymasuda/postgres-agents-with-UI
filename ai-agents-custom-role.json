@@ -1,0 +1,18 @@
+{
+  "Name": "AI Agents Data Contributor",
+  "IsCustom": true,
+  "Description": "Custom role to allow agents write access for Azure AI Foundry.",
+  "Actions": [
+    "Microsoft.CognitiveServices/*"
+  ],
+  "DataActions": [
+    "Microsoft.CognitiveServices/accounts/AIServices/agents/write",
+    "Microsoft.CognitiveServices/accounts/AIServices/agents/read",
+    "Microsoft.CognitiveServices/accounts/AIServices/agents/delete"
+  ],
+  "NotActions": [],
+  "NotDataActions": [],
+  "AssignableScopes": [
+    "/subscriptions/2f23054f-7c75-4aac-8737-3a3db9996ac9/resourceGroups/rg-andypostgresqlagentbl"
+  ]
+}

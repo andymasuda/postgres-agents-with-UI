@@ -143,10 +143,58 @@ def ingest_csv_and_add_embeddings(cur, csv_path):
         conn.commit()
         print("CSV rows and embeddings inserted successfully")
 
+def setup_fts_columns(cur):
+    """
+    Adds and populates the tsvector column for full-text search and creates a GIN index.
+    """
+    # Add the tsvector column if it doesn't exist
+    cur.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name='invoices' AND column_name='tsv'
+            ) THEN
+                ALTER TABLE invoices ADD COLUMN tsv tsvector;
+            END IF;
+        END
+        $$;
+    """)
+    conn.commit()
+
+    # Populate the tsvector column with concatenated text fields
+    cur.execute("""
+        UPDATE invoices
+        SET tsv = to_tsvector('english',
+            coalesce("soldto_name", '') || ' ' || coalesce("shipto_name", '') || ' ' ||
+            coalesce("Major Desc", '') || ' ' || coalesce("Mid Desc", '') || ' ' ||
+            coalesce("Minor Desc", '') || ' ' || coalesce("Item Desc", '')
+        );
+    """)
+    conn.commit()
+
+    # Create a GIN index on the tsvector column if it doesn't exist
+    cur.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE tablename='invoices' AND indexname='invoices_tsv_idx'
+            ) THEN
+                CREATE INDEX invoices_tsv_idx ON invoices USING GIN(tsv);
+            END IF;
+        END
+        $$;
+    """)
+    conn.commit()
+    print("FTS tsvector column and GIN index set up successfully")
+
+# Example usage:
 #create_extensions(cur)
-create_openai_connection(cur)
+#create_openai_connection(cur)
 #create_tables(cur)
-#ingest_csv_and_add_embeddings(cur, "data/bluelinxsmalldata.csv") # Note: Store the CSV file in the same directory as this script or provide the correct path
+#ingest_csv_and_add_embeddings(cur, "bluelinxsmalldata.csv")
+setup_fts_columns(cur)
 
 # Close the cursor and connection
 cur.close()

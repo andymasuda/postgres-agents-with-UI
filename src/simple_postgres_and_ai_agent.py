@@ -19,7 +19,7 @@ from azure.ai.agents.models import (
 from dotenv import load_dotenv
 from pathlib import Path
 from datetime import datetime
-from legal_agent_tools import sql_search
+from legal_agent_tools import sql_search, vector_search
 
 # Load environment variables
 env_path = Path(__file__).resolve().parent.parent / ".env"
@@ -84,16 +84,41 @@ class MyEventHandler(AgentEventHandler):
 
 with agents_client:
     # Define user functions as a set for FunctionTool
-    user_functions = {sql_search}
+    user_functions = {sql_search, vector_search}
     functions = FunctionTool(functions=user_functions)
 
     agent = agents_client.create_agent(
         model=os.environ["MODEL_DEPLOYMENT_NAME"],
         name=f"invoice-agent-{int(time.time())}",
         instructions=(
-            "You are a helpful assistant that can retrieve information from a dataset of invoices.\n"
-            "For every user question, you MUST use the sql_search tool to answer. Do not answer from your own knowledge or make up data.\n"
-            f"The current date is {datetime.now().strftime('%Y-%m-%d')}."
+            "You are an intelligent routing assistant for a database of invoices, designed for internal business analysts. "
+            "Your primary task is to analyze the user's question and decide which of the two available tools is the most appropriate to answer it. "
+            "You must respond by calling one of the tools. Do not answer the question directly from your own knowledge.\n\n"
+            
+            "**TOOL DEFINITIONS:**\n\n"
+            
+            "1. `sql_search(query: str)`:\n"
+            "   - **Description:** This is your default, primary tool. Use it for the vast majority of questions. It is extremely powerful for precise queries involving specific keywords, filtering on known categories (like region or product type), date ranges, and performing calculations (like SUM, COUNT, AVG).\n"
+            "   - **Use For Examples:**\n"
+            "     - 'What is the total profit for invoices for ACME Corp?'\n"
+            "     - 'Show me invoices for ACME Corp in the Central region.'\n"
+            "     - 'How many sales did we have last week?'\n"
+            "     - 'What are the transactions involving specialty lumber or engineered wood?'\n"
+            
+            "2. `vector_search(query: str)`:\n"
+            "   - **Description:** This is a specialized tool for conceptual or similarity-based analysis where specific keywords are not enough.\n"
+            "   - **Use For Examples:**\n"
+            "     - 'Which invoices are similar to invoice #9999?'\n"
+            "     - 'Analyze sales patterns for our premium-grade materials.'\n\n"
+            
+            "**DECISION-MAKING PROCESS:**\n"
+            "1. **Default to `sql_search`**. It can handle almost any question about filtering, counting, and summarizing data.\n"
+            "2. **Only choose `vector_search`** when the user's query is not about finding specific keywords, but about performing one of these three analytical tasks:\n"
+            "   - **Similarity Analysis:** For finding comparable transactions or items based on an example. (e.g., 'Find deals similar to invoice #9876', 'Show me alternatives to this product we sold').\n"
+            "   - **Identifying Purchase Patterns:** To find invoices that represent a certain type of project or complete customer order. (e.g., 'Show me sales that look like a residential roofing project').\n"
+            "   - **Searching by Abstract Business Concepts:** To find sales based on strategic ideas or qualities not in the data. (e.g., 'What were our sales for contractor-grade materials?', 'Analyze our high-margin product sales').\n\n"
+            
+            f"For any queries involving dates, remember that the current date is {datetime.now().strftime('%Y-%m-%d')}."
         ),
         tools=functions.definitions,
     )
@@ -105,14 +130,18 @@ with agents_client:
     message = agents_client.messages.create(
         thread_id=thread.id,
         role="user",
-        content="Which sales exceeded 10,000?"
+        content="Analyze sales patterns for our premium-grade materials.",
     )
     print(f"Created message, message ID {message.id}")
 
+    print("[DEBUG] About to enter run stream context")
     with agents_client.runs.stream(
         thread_id=thread.id, agent_id=agent.id, event_handler=MyEventHandler(functions)
     ) as stream:
+        print("[DEBUG] Entered run stream context, about to call until_done()")
         stream.until_done()
+        print("[DEBUG] Finished stream.until_done()")
+    print("[DEBUG] Exited run stream context")
 
     agents_client.delete_agent(agent.id)
     print("Deleted agent")

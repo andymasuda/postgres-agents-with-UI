@@ -45,7 +45,6 @@ agents_client = AgentsClient(
     endpoint=os.environ["PROJECT_ENDPOINT"],
     credential=DefaultAzureCredential(
         exclude_environment_credential=True,
-        exclude_managed_identity_credential=True,
         exclude_shared_token_cache_credential=True,
     ),
 )
@@ -58,9 +57,34 @@ agent = agents_client.create_agent(
     model=os.environ["MODEL_DEPLOYMENT_NAME"],
     name=f"chat-agent-{datetime.now().strftime('%Y%m%d%H%M')}",
     instructions=(
-            "You are a helpful assistant that can retrieve information from a dataset of invoices.\n"
-            "For every user question, you MUST use the sql_search tool to answer. Do not answer from your own knowledge, search the internet, or make up data.\n"
-            f"The current date is {datetime.now().strftime('%Y-%m-%d')}."
+            "You are an intelligent routing assistant for a database of invoices, designed for internal business analysts. "
+            "Your primary task is to analyze the user's question and decide which of the two available tools is the most appropriate to answer it. "
+            "You must respond by calling one of the tools. Do not answer the question directly from your own knowledge.\n\n"
+            
+            "**TOOL DEFINITIONS:**\n\n"
+            
+            "1. `sql_search(query: str)`:\n"
+            "   - **Description:** This is your default, primary tool. Use it for the vast majority of questions. It is extremely powerful for precise queries involving specific keywords, filtering on known categories (like region or product type), date ranges, and performing calculations (like SUM, COUNT, AVG).\n"
+            "   - **Use For Examples:**\n"
+            "     - 'What is the total profit for invoices for ACME Corp?'\n"
+            "     - 'Show me invoices for ACME Corp in the Central region.'\n"
+            "     - 'How many sales did we have last week?'\n"
+            "     - 'What are the transactions involving specialty lumber or engineered wood?'\n"
+            
+            "2. `vector_search(query: str)`:\n"
+            "   - **Description:** This is a specialized tool for conceptual or similarity-based analysis where specific keywords are not enough.\n"
+            "   - **Use For Examples:**\n"
+            "     - 'Which invoices are similar to invoice #9999?'\n"
+            "     - 'Analyze sales patterns for our premium-grade materials.'\n\n"
+            
+            "**DECISION-MAKING PROCESS:**\n"
+            "1. **Default to `sql_search`**. It can handle almost any question about filtering, counting, and summarizing data.\n"
+            "2. **Only choose `vector_search`** when the user's query is not about finding specific keywords, but about performing one of these three analytical tasks:\n"
+            "   - **Similarity Analysis:** For finding comparable transactions or items based on an example. (e.g., 'Find deals similar to invoice #9876', 'Show me alternatives to this product we sold').\n"
+            "   - **Identifying Purchase Patterns:** To find invoices that represent a certain type of project or complete customer order. (e.g., 'Show me sales that look like a residential roofing project').\n"
+            "   - **Searching by Abstract Business Concepts:** To find sales based on strategic ideas or qualities not in the data. (e.g., 'What were our sales for contractor-grade materials?').\n\n"
+            
+            f"For any queries involving dates, remember that the current date is {datetime.now().strftime('%Y-%m-%d')}."
     ),
     tools=functions.definitions,
 )
@@ -133,18 +157,6 @@ def index():
         logger.exception(f"Error creating thread on index load: {e}")
     return render_template("index.html")
 
-def format_agent_response(text):
-    # Convert **bold** to <strong>
-    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
-    # Replace numbered lists with <ol><li>...</li></ol>
-    def list_replacer(match):
-        items = re.findall(r"\d+\.\s+(.+?)(?=(?:\d+\.|$))", match.group(0), re.DOTALL)
-        return "<ol>" + "".join(f"<li>{item.strip()}</li>" for item in items) + "</ol>"
-    text = re.sub(r"((?:\d+\..+?)+)", list_replacer, text, flags=re.DOTALL)
-    # Replace newlines with <br>
-    text = text.replace("\n", "<br>")
-    return text
-
 # Define the /chat endpoint to handle user messages
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -192,10 +204,7 @@ def chat():
 
         logger.info(f"Agent response: {agent_response}")
 
-        # Format the response as HTML
-        formatted_response = format_agent_response(agent_response)
-
-        return jsonify({"response": formatted_response})
+        return jsonify({"response": agent_response})
     except Exception as e:
         logger.exception(f"Error in /chat endpoint: {e}")
         return jsonify({"error": str(e)}), 500

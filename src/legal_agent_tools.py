@@ -13,6 +13,7 @@ from pathlib import Path
 import logging
 import sys
 import requests
+import time
 
 # Redirect debug prints to Azure log stream (stdout)
 logging.basicConfig(
@@ -39,6 +40,8 @@ logger.debug(f"Loaded CONN_STR: {CONN_STR}")
 
 @trace_function()
 def sql_search(user_query: str) -> str:
+    start = time.time()
+    logger.debug("sql_search started")
     """
     Converts a user query into an SQL query, executes it, and returns the results as JSON.
 
@@ -55,14 +58,37 @@ def sql_search(user_query: str) -> str:
     db = create_engine(CONN_STR)
     logger.debug("Database engine created successfully. Connection is ready to use.")
 
-    # Prompt for the LLM to convert user query to SQL
+    # Updated system prompt for full-text search using tsvector
     system_prompt = (
-        "You are an assistant that converts natural language questions into SQL queries for a PostgreSQL database. "
-        "The table is named 'invoices' and has the following columns: "
-        "\"ID\", \"FiscalWeekBeginDate\", \"Invoice Date\", \"Region\", \"Facility Name\", \"Branch Id\", \"Channel\", "
-        "\"soldto_name\", \"shipto_name\", \"Product Type\", \"Major Code\", \"Major Desc\", \"Mid Code\", \"Mid Desc\", "
-        "\"Minor Code\", \"Minor Desc\", \"Item\", \"Item Desc\", \"Sales\", \"Gross Profit\", \"GM Percent\", \"TLE\". "
-        "ALWAYS use double quotes around all column names in your SQL. Do not use SELECT *, always specify columns. Only generate SQL, no explanations."
+        "You are an expert assistant that converts natural language questions into efficient, read-only SQL queries for a PostgreSQL database. The table is named 'invoices'.\n\n"
+        "**IMPORTANT SEARCH RULE:**\n"
+        "To search for text, keywords, or descriptions (like product names, customer names, etc.), you MUST use the special full-text search column named `tsv`. This column contains all searchable text from the invoice. The correct way to use it is with the `@@ to_tsquery()` operator. For example, to find 'cedar', the query is `WHERE tsv @@ to_tsquery('english', 'cedar')`. To find 'cedar' and 'panels', it is `WHERE tsv @@ to_tsquery('english', 'cedar & panels')`.\n\n"
+        "**DO NOT GUESS a text column and use `=` or `ILIKE`. This is wrong and will fail.** Always use `tsv @@ to_tsquery()` for any text search.\n\n"
+        "Use standard `WHERE` clauses only for filtering on columns with exact, structured data like \"Region\", \"Channel\", \"Product Type\", \"Major Code\", or for numeric/date ranges on \"Sales\" or \"Invoice Date\".\n\n"
+        "TABLE SCHEMA:\n"
+        "ID: Unique identifier for each invoice (the invoice number).\n"
+        "\"FiscalWeekBeginDate\", \"Invoice Date\": Date columns.\n"
+        "\"Region\": The sales region (e.g., 'Central'). A structured category.\n"
+        "\"Facility Name\": The name of the facility or branch (e.g., 'Birmingham'). A structured category.\n"
+        "\"Branch Id\": The short code for the facility (e.g., 'BIR'). A structured category.\n"
+        "\"Channel\": The sales channel (e.g., 'Direct', 'Warehouse'). A structured category.\n"
+        "\"soldto_name\", \"shipto_name\": Customer name information. Search these using the `tsv` column.\n"
+        "\"Product Type\": The high-level product category (e.g., 'Specialty'). A structured category.\n"
+        "\"Major Code\": Numeric code for the major product category, stored as text. When filtering, always compare as a string and put quotes around the number (e.g., WHERE \"Major Code\" = '1').\n"
+        "\"Mid Code\": Numeric code for the mid-level product category, stored as text. When filtering, always compare as a string and put quotes around the number (e.g., WHERE \"Mid Code\" = '2').\n"
+        "\"Minor Code\": Three-letter code for the minor product category (e.g., 'OSB', 'CED').\n"
+        "\"Major Desc\", \"Mid Desc\", \"Minor Desc\", \"Item Desc\": Text descriptions for product categories and items. Search these using the `tsv` column.\n"
+        "\"Item\": The unique identifier for the item/product that was sold. This is the item ID, not the invoice ID.\n"
+        "\"Sales\", \"Gross Profit\": Numeric columns for financial data.\n"
+        "\"GM Percent\", \"TLE\": Numeric columns representing percentages or ratios, stored as decimals.\n"
+        "tsv: A special tsvector column for fast text searching. USE THIS FOR ALL TEXT AND KEYWORD SEARCHES.\n\n"
+        "RULES:\n"
+        "1. For text searches (customers, products, descriptions), ALWAYS use `WHERE tsv @@ to_tsquery(...)`.\n"
+        "2. For filtering on structured categories (\"Region\", \"Channel\", \"Facility Name\", \"Major Code\") or numbers (\"Sales\", \"Gross Profit\"), use standard operators (`=`, `>`, `<`). For \"Major Code\" and \"Mid Code\", always compare as a string and put quotes around the number.\n"
+        "3. ALWAYS use double quotes around column names (e.g., \"Sales\", \"Facility Name\").\n"
+        "4. Do not use `SELECT *`; always specify the columns needed.\n"
+        "5. Only generate SQL, no explanations.\n"
+        "6. Remember: \"ID\" is the invoice number, and \"Item\" is the item/product ID."
     )
 
     url = f"{ENDPOINT}/openai/deployments/{DEPLOYMENT}/chat/completions?api-version=2024-02-15-preview"
@@ -96,183 +122,106 @@ def sql_search(user_query: str) -> str:
 
     # Convert results to JSON
     results_json = df.to_json(orient="records")
+    logger.debug("Number of vector search results: %d", len(df))
     logger.debug("Query results as JSON:")
     logger.debug(results_json)
+    logger.debug("Number of vector search results: %d", len(df))
+    logger.debug(f"Generated SQL query: {sql_query}")
 
     span = trace.get_current_span()
     span.set_attribute("user_query", user_query)
     span.set_attribute("sql_query", sql_query)
     span.set_attribute("results_json", results_json)
 
+    logger.debug(f"sql_search finished in {time.time() - start:.2f} seconds")
     return results_json
 
-'''
-# Get data from the Postgres database
 @trace_function()
-def hybrid_search_cases(query: str, limit: int = 10) -> str:
+def vector_search(vector_search_query: str, similarity_threshold: float = 0.6, limit: int = 10) -> str:
+    start = time.time()
+    logger.debug("vector_search started")
     """
-    Fetches document chunks relevant to the specified query using hybrid search
-    (combining full-text search and vector search with RRF scoring).
+    Fetches the top N most semantically similar invoice rows to the query,
+    and includes the total count of all relevant rows (not just the top N).
 
-    :param query: The query to search for in the document embeddings and full-text search.
-    :type query: str
-    :param limit: The maximum number of document chunks to fetch, defaults to 10.
+    :param vector_search_query: The query to search for in the invoice embeddings.
+    :type vector_search_query: str
+    :param similarity_threshold: The similarity threshold for relevance (default 0.6).
+    :type similarity_threshold: float, optional
+    :param limit: The maximum number of rows to return in the output (default 10).
     :type limit: int, optional
 
-    :return: Document chunks as a JSON string.
+    :return: JSON with 'results' (top N rows) and 'total_relevant_count'.
     :rtype: str
     """
     db = create_engine(CONN_STR)
     logger.debug("Database engine created successfully. Connection is ready to use.")
 
-    hybrid_query = """
-    WITH full_text_results AS (
-        SELECT id, chunk, 
-                ts_rank(tsvector_column, plainto_tsquery('english', %s)) AS rank
-        FROM document_chunks
-        WHERE tsvector_column @@ plainto_tsquery('english', %s)
-        LIMIT %s
+    # Compute the embedding ONCE and use it in the query
+    embedding_query = """
+    SELECT azure_openai.create_embeddings('text-embedding-3-small', %s)::vector AS query_embedding
+    """
+    try:
+        embedding_df = pd.read_sql(embedding_query, db, params=(vector_search_query,))
+        query_embedding = embedding_df.iloc[0]['query_embedding']
+    except Exception as e:
+        logger.error(f"Embedding computation error: {e}")
+        return json.dumps({"error": str(e)})
+
+    query = """
+    WITH query_vec AS (
+        SELECT %s::vector AS embedding
     ),
-    vector_results AS (
-        SELECT id, chunk, 
-                embeddings::vector <=> azure_openai.create_embeddings(
-                'text-embedding-3-small', %s)::vector AS similarity
-        FROM document_chunks
-        ORDER BY similarity ASC
-        LIMIT %s
-    ),
-    combined_results AS (
-        SELECT 
-            COALESCE(ft.id, vt.id) AS id,
-            COALESCE(ft.chunk, vt.chunk) AS chunk,
-            ft.rank,
-            vt.similarity
-        FROM full_text_results ft
-        FULL OUTER JOIN vector_results vt
-        ON ft.id = vt.id
+    filtered AS (
+        SELECT
+            "ID", "FiscalWeekBeginDate", "Invoice Date", "Region", "Facility Name", "Branch Id", "Channel",
+            "soldto_name", "shipto_name", "Product Type", "Major Code", "Major Desc", "Mid Code", "Mid Desc",
+            "Minor Code", "Minor Desc", "Item", "Item Desc", "Sales", "Gross Profit", "GM Percent", "TLE",
+            embeddings::vector <=> query_vec.embedding AS similarity
+        FROM invoices, query_vec
+        WHERE (embeddings::vector <=> query_vec.embedding) < %s
+        ORDER BY similarity
     )
-    SELECT id, chunk, 
-            1 / (0.5 + ROW_NUMBER() OVER (ORDER BY rank DESC NULLS LAST)) AS full_text_score,
-            1 / (0.5 + ROW_NUMBER() OVER (ORDER BY similarity ASC NULLS LAST)) AS vector_score,
-            (1 / (0.5 + ROW_NUMBER() OVER (ORDER BY rank DESC NULLS LAST)) +
-            1 / (0.5 + ROW_NUMBER() OVER (ORDER BY similarity ASC NULLS LAST))) AS rrf_score
-    FROM combined_results
-    ORDER BY rrf_score DESC
-    LIMIT %s;
+    SELECT *, (SELECT COUNT(*) FROM filtered) AS total_relevant_count
+    FROM filtered
+    ;
     """
 
-    # Execute the hybrid query
-    df = pd.read_sql(hybrid_query, db, params=(query, query, limit, query, limit, limit))
+    logger.debug("Vector search SQL query:\n%s", query)
 
-    # Debugging: Log the query and returned data
-    logger.debug("Executed hybrid SQL query:")
-    logger.debug(hybrid_query)
-    logger.debug("Returned data:")
-    logger.debug(df)
+    try:
+        df = pd.read_sql(query, db, params=(query_embedding, similarity_threshold, limit))
+        logger.debug("Vector search SQL query executed successfully.")
+    except Exception as e:
+        logger.error(f"Vector search SQL execution error: {e}")
+        return json.dumps({"error": str(e)})
+
+    # Extract total count (will be the same for all rows, or 0 if no rows)
+    total_count = int(df['total_relevant_count'].iloc[0]) if not df.empty else 0
+    # Only return the top `limit` results (already limited in SQL)
+    results = df.drop(columns=['total_relevant_count']).to_dict(orient="records")
+
+    output = {
+        "results": results,
+        "total_relevant_count": total_count
+    }
+
+    logger.debug("Number of vector search results: %d", len(results))
+    logger.debug("Total relevant count: %d", total_count)
+    logger.debug("Vector search results as JSON:")
+    logger.debug(json.dumps(output))
 
     span = trace.get_current_span()
-    span.set_attribute("requested_query", hybrid_query)
+    span.set_attribute("vector_search_query", vector_search_query)
+    span.set_attribute("similarity_threshold", similarity_threshold)
+    span.set_attribute("total_relevant_count", total_count)
+    span.set_attribute("results_json", json.dumps(output))
 
-    documents_json = json.dumps(df.to_json(orient="records"))
-    span.set_attribute("documents_json", documents_json)
+    logger.debug(f"vector_search finished in {time.time() - start:.2f} seconds")
+    return json.dumps(output)
 
-    # Log the JSON before returning
-    logger.debug("Generated JSON:")
-    logger.debug(documents_json)
-
-    logger.debug("Executing hybrid_search_cases successfully.")
-    return documents_json
-
-@trace_function()
-def vector_search_cases(vector_search_query: str, limit: int = 10) -> str:
-    """
-    Fetches document chunks relevant to the specified query.
-
-    :param query: The query to search for in the document embeddings.
-    :type query: str
-    :param limit: The maximum number of document chunks to fetch, defaults to 10.
-    :type limit: int, optional
-
-    :return: Document chunks as a JSON string.
-    :rtype: str
-    """
-    db = create_engine(CONN_STR)
-
-    query = """
-    SELECT id, chunk, 
-    embeddings::vector <=> azure_openai.create_embeddings(
-    'text-embedding-3-small', %s)::vector as similarity
-    FROM document_chunks
-    ORDER BY similarity
-    LIMIT %s;
-    """
-    
-    # Fetch cases information from the database
-    df = pd.read_sql(query, db, params=(vector_search_query, limit))
-
-    # Debugging: Log the query and returned data
-    logger.debug("Executed SQL query:")
-    logger.debug(query)
-    logger.debug("Returned data:")
-    logger.debug(df)
-
-    span = trace.get_current_span()
-    span.set_attribute("requested_query", query)
-
-    documents_json = json.dumps(df.to_json(orient="records"))
-    span.set_attribute("documents_json", documents_json)
-
-    # Log the JSON before returning
-    logger.debug("Generated JSON:")
-    logger.debug(documents_json)
-
-@trace_function()
-def count_cases(vector_search_query: str, limit: int = 10) -> str:
-    """
-    Count the number of document chunks related to the specified query.
-
-    :param query: The query to search for in the document embeddings.
-    :type query: str
-    :param limit: The maximum number of document chunks to count, defaults to 10.
-    :type limit: int, optional
-
-    :return: Count information as a JSON string.
-    :rtype: str
-    """
-    db = create_engine(CONN_STR)
-
-    query = """
-    SELECT COUNT(*) 
-    FROM document_chunks
-    WHERE embeddings::vector <=> azure_openai.create_embeddings(
-        'text-embedding-3-small', 
-    %s)::vector < 0.8 -- 0.8 is the threshold for similarity
-    LIMIT %s;
-    """
-    
-    # Debugging: Log the query and parameters
-    logger.debug("Executing SQL query:")
-    logger.debug(query)
-    logger.debug("With parameters:")
-    logger.debug((vector_search_query, limit))  # Log the parameters being passed
-
-    df = pd.read_sql(query, db, params=(vector_search_query, limit))  # Ensure params match placeholders
-
-    logger.debug("Returned data:")
-    logger.debug(df)
-
-    span = trace.get_current_span()
-    span.set_attribute("requested_query", query)
-    documents_count = json.dumps(df.to_json(orient="records"))
-    span.set_attribute("result", documents_count)
-
-    # Log the JSON before returning
-    logger.debug("Generated JSON:")
-    logger.debug(documents_count)
-
-    return documents_count
-'''
 # Statically defined user functions for fast reference
 user_functions: Set[Callable[..., Any]] = {
-    sql_search
+    sql_search,
+    vector_search,
 }
